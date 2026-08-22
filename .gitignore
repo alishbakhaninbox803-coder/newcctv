@@ -1,0 +1,50 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python Virtual Environments
+venv/
+.venv/
+backend/venv/
+*/venv/
+
+# Node dependencies
+node_modules/
+frontend/node_modules/
+*/node_modules/
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*/__pycache__/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+
+# Local databases & logs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Large AI Model Weights
+*.pt
+*.onnx
+*.weights
+*.bin
+*.pth
+
+# Snapshots and generated data
+data/
+backend/data/
