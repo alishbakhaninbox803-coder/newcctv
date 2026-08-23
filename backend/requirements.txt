@@ -40,3 +40,4 @@ supervision>=0.24.0,<0.28.0
 psycopg2-binary>=2.9.9
 pymysql>=1.1.1
 pgvector>=0.2.5
+pynvml>=11.5.0
