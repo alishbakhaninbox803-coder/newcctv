@@ -1,10 +1,31 @@
 import { useState } from "react";
 import { registerFace, deleteFace, snapshotUrl } from "../api";
 
+const MAX_FILE_SIZE_MB = 8;
+
 export default function RegisterFace({ onRegistered, knownFaces = [] }) {
   const [name, setName] = useState("");
   const [files, setFiles] = useState([]);
   const [status, setStatus] = useState("");
+
+  const handleFileChange = (e) => {
+    const selected = Array.from(e.target.files);
+    const invalid = selected.filter(
+      (f) => f.type !== "image/jpeg" || f.size > MAX_FILE_SIZE_MB * 1024 * 1024
+    );
+
+    if (invalid.length > 0) {
+      setFiles([]);
+      e.target.value = ""; // reset input so the same file can be re-picked after fixing
+      setStatus(
+        "❌ Only JPG/JPEG photos are allowed (max 8MB each). Please compress your picture and upload it here."
+      );
+      return;
+    }
+
+    setStatus("");
+    setFiles(selected);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -32,6 +53,7 @@ export default function RegisterFace({ onRegistered, knownFaces = [] }) {
       <h2 className="font-semibold mb-1">Register a Known Member</h2>
       <p className="text-xs text-gray-500 mb-3">
         Upload 2-4 clear, front-facing photos (different angles/lighting) for best recognition accuracy.
+        JPG/JPEG only, max {MAX_FILE_SIZE_MB}MB each.
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-2 mb-4">
         <input
@@ -42,10 +64,10 @@ export default function RegisterFace({ onRegistered, knownFaces = [] }) {
         />
         <input
           type="file"
-          accept="image/*"
+          accept=".jpg,.jpeg,image/jpeg"
           multiple
           className="text-sm"
-          onChange={(e) => setFiles(Array.from(e.target.files))}
+          onChange={handleFileChange}
         />
         {files.length > 0 && (
           <p className="text-xs text-gray-400">{files.length} photo(s) selected</p>

@@ -41,7 +41,7 @@ async def register_face(
 
         faces = extract_faces(frame)
         if not faces:
-            continue  # skip photos with no detectable face, don't fail the whole batch
+            continue  # skip photos with no clear, sharp, front-facing face (side poses/blurry shots rejected)
 
         photo_path = f"{settings.SNAPSHOT_DIR}/known_{name}_{idx}.jpg"
         cv2.imwrite(photo_path, frame)

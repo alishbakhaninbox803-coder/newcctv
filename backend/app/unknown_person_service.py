@@ -8,9 +8,6 @@ Each distinct Unknown identity gets exactly ONE dedicated folder:
 Every subsequent sighting of that same person (any camera, any time) adds
 another file into that SAME folder — never a new folder, never a new ID —
 as long as the embedding matches within UNKNOWN_PERSON_DISTANCE_THRESHOLD.
-
-FILE PATH: backend/app/unknown_person_service.py
-ACTION: REPLACE ENTIRE FILE
 """
 import os
 import time
@@ -21,13 +18,55 @@ from datetime import datetime
 from sqlalchemy import text, select
 from sqlalchemy.orm import Session
 
-from app.models import UnknownPerson, UnknownSighting, KnownFace, FaceEmbedding
+from app.models import UnknownPerson, UnknownEmbedding, UnknownSighting, KnownFace, FaceEmbedding
 from app.config import settings
 
 # Any fixed 64-bit key works here - it only needs to be the same key on
 # every call so pg_advisory_xact_lock() serializes match-or-create across
 # every camera worker / process talking to this database.
 _DEDUP_LOCK_KEY = 913_223_001
+
+
+def _cosine_distance(embedding: np.ndarray, stored_vector) -> float:
+    stored = np.array(stored_vector, dtype=np.float32)
+    cos_sim = np.dot(embedding, stored) / (
+        np.linalg.norm(embedding) * np.linalg.norm(stored) + 1e-8
+    )
+    return float(1 - cos_sim)
+
+
+def _nearest_by_sighting_embeddings(embedding: np.ndarray, db: Session):
+    """
+    Nearest match across every stored per-sighting embedding, for every
+    identity. This is the primary/growing match path: the more times a
+    person is seen, the more angles/lighting conditions are on file for
+    them, so later sightings keep finding a close-enough match.
+    """
+    row = db.execute(
+        select(UnknownEmbedding)
+        .order_by(UnknownEmbedding.vector.cosine_distance(embedding))
+        .limit(1)
+    ).scalars().first()
+    if row is None:
+        return None, None
+    return row.unknown_person_id, _cosine_distance(embedding, row.vector)
+
+
+def _nearest_by_reference_embedding(embedding: np.ndarray, db: Session):
+    """
+    Nearest match via each identity's original single reference_embedding.
+    Covers identities created before per-sighting embeddings were tracked
+    (so older Unknown-NNN rows don't get orphaned/duplicated after this
+    upgrade) — safe to keep running alongside the check above indefinitely.
+    """
+    row = db.execute(
+        select(UnknownPerson)
+        .order_by(UnknownPerson.reference_embedding.cosine_distance(embedding))
+        .limit(1)
+    ).scalars().first()
+    if row is None:
+        return None, None
+    return row.id, _cosine_distance(embedding, row.reference_embedding)
 
 
 def _unknown_folder(unknown_id: int) -> str:
@@ -69,21 +108,18 @@ def resolve_unknown_person(
     # Released automatically at transaction end (commit below).
     db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _DEDUP_LOCK_KEY})
 
-    candidate = db.execute(
-        select(UnknownPerson)
-        .order_by(UnknownPerson.reference_embedding.cosine_distance(embedding))
-        .limit(1)
-    ).scalars().first()
+    # Check both match paths and keep whichever candidate is actually closer.
+    pid_a, dist_a = _nearest_by_sighting_embeddings(embedding, db)
+    pid_b, dist_b = _nearest_by_reference_embedding(embedding, db)
+
+    best_person_id, best_distance = None, None
+    for pid, dist in ((pid_a, dist_a), (pid_b, dist_b)):
+        if pid is not None and (best_distance is None or dist < best_distance):
+            best_person_id, best_distance = pid, dist
 
     matched_person = None
-    if candidate is not None:
-        stored = np.array(candidate.reference_embedding, dtype=np.float32)
-        cos_sim = np.dot(embedding, stored) / (
-            np.linalg.norm(embedding) * np.linalg.norm(stored) + 1e-8
-        )
-        cos_distance = 1 - cos_sim
-        if cos_distance <= settings.UNKNOWN_PERSON_DISTANCE_THRESHOLD:
-            matched_person = candidate
+    if best_person_id is not None and best_distance <= settings.UNKNOWN_PERSON_DISTANCE_THRESHOLD:
+        matched_person = db.query(UnknownPerson).filter(UnknownPerson.id == best_person_id).first()
 
     if matched_person is not None:
         snapshot_path = _save_snapshot_into(_unknown_folder(matched_person.id), camera_name, frame)
@@ -95,6 +131,16 @@ def resolve_unknown_person(
                 camera_name=camera_name,
                 snapshot_path=snapshot_path,
                 timestamp=now,
+            )
+        )
+        # Bank this sighting's embedding too, so the identity keeps getting
+        # richer/easier to match on future, differently-angled sightings.
+        db.add(
+            UnknownEmbedding(
+                unknown_person_id=matched_person.id,
+                vector=embedding,
+                snapshot_path=snapshot_path,
+                created_at=now,
             )
         )
         db.commit()
@@ -120,6 +166,14 @@ def resolve_unknown_person(
             timestamp=now,
         )
     )
+    db.add(
+        UnknownEmbedding(
+            unknown_person_id=new_person.id,
+            vector=embedding,
+            snapshot_path=snapshot_path,
+            created_at=now,
+        )
+    )
     db.commit()
     db.refresh(new_person)
     return new_person, True
@@ -132,12 +186,12 @@ def promote_to_known(unknown_person_id: int, name: str, db: Session) -> KnownFac
       - Creates a new KnownFace(name=...).
       - Moves EVERY file out of unknown/Unknown-NNN/ into a new dedicated
         known/{name}_{known_face.id}/ folder (not just the representative
-        snapshot) — matching your multi-photo registration pattern, each
+        snapshot) — matching the multi-photo registration pattern, each
         moved photo gets its own FaceEmbedding row (all seeded with the
-        same reference_embedding, since we only ever computed one embedding
-        for this identity) so `photo_count` in the UI is accurate and every
-        photo is individually viewable, exactly like manually-registered
-        known faces.
+        same reference_embedding, since only one embedding was ever
+        computed for this identity) so `photo_count` in the UI is accurate
+        and every photo is individually viewable, exactly like manually-
+        registered known faces.
       - Deletes the now-empty Unknown-NNN folder and the unknown_person row
         (unknown_sighting history cascades away with it — that history no
         longer applies, the person is now a known, named individual).
@@ -159,17 +213,29 @@ def promote_to_known(unknown_person_id: int, name: str, db: Session) -> KnownFac
     cover_photo_path = None
     moved_count = 0
 
+    # Snapshot -> embedding pairing: every resolve_unknown_person() match
+    # inserts exactly one UnknownSighting (a file) and one UnknownEmbedding
+    # together, so the two lists stay 1:1 and chronologically aligned.
+    stored_embeddings = list(unknown_person.embeddings)  # ordered by id (chronological)
+
     if os.path.isdir(unknown_dir):
-        for fname in sorted(os.listdir(unknown_dir)):
+        files = sorted(f for f in os.listdir(unknown_dir) if os.path.isfile(os.path.join(unknown_dir, f)))
+        for idx, fname in enumerate(files):
             src = os.path.join(unknown_dir, fname)
-            if not os.path.isfile(src):
-                continue
             dst = os.path.join(known_dir, fname)
             shutil.move(src, dst)
+            # Use this sighting's own embedding when we have one on file;
+            # fall back to the identity's original reference embedding for
+            # any file left over from before per-sighting embeddings existed.
+            vector = (
+                stored_embeddings[idx].vector
+                if idx < len(stored_embeddings)
+                else unknown_person.reference_embedding
+            )
             db.add(
                 FaceEmbedding(
                     face_id=known_face.id,
-                    vector=unknown_person.reference_embedding,
+                    vector=vector,
                     photo_path=dst,
                 )
             )

@@ -24,18 +24,18 @@ os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|fflags;nobuffe
 
 from app.database import SessionLocal
 from app.models import Event, Zone
-from app.face_engine import extract_faces, match_face
+from app.face_engine import extract_faces, match_face, is_frontal_face
 from app.object_engine import (
     detect_objects, detect_objects_forensic, filter_restricted, box_center,
 )
 from app.redis_stream import push_event
 from app.whatsapp import (
     send_whatsapp_text,
-    send_whatsapp_image,
     send_whatsapp_image_alert,
     build_unknown_person_message,
     build_restricted_object_message,
 )
+from app.unknown_person_service import resolve_unknown_person
 from app.config import settings
 from app.stream_manager import publish_frame, clear_frame
 
@@ -128,8 +128,16 @@ class CameraWorker:
         return path
 
     def _log_and_alert(self, event_type, person_name=None, is_unknown=False,
-                        object_name=None, confidence=None, frame=None, in_zone=True):
-        snapshot_path = self._save_snapshot(frame) if frame is not None else None
+                        object_name=None, confidence=None, frame=None, in_zone=True,
+                        snapshot_path=None):
+        """
+        snapshot_path: pass this in when a snapshot was already saved
+        elsewhere (e.g. resolve_unknown_person() saving into its own
+        Unknown-NNN folder) so we don't save the same frame to disk twice.
+        If omitted, falls back to the old flat-file save-per-event.
+        """
+        if snapshot_path is None and frame is not None:
+            snapshot_path = self._save_snapshot(frame)
         db = SessionLocal()
         try:
             event = Event(
@@ -161,6 +169,8 @@ class CameraWorker:
             msg = build_unknown_person_message(
                 self.camera_name, datetime.utcnow().strftime("%I:%M %p"), confidence or 0
             )
+            if person_name:
+                msg = f"{msg}\nIdentity: {person_name}"
             send_whatsapp_image_alert(snapshot_path, msg)
         elif event_type == "restricted_object":
             msg = build_restricted_object_message(
@@ -342,6 +352,8 @@ class CameraWorker:
                     self.status["insightface_inference_ms"] = round((time.time() - t_face) * 1000, 1)
                     
                     for face in faces:
+                        if not is_frontal_face(face):
+                            continue  # side/profile face — skip entirely, no match, no alert
                         box = tuple(map(int, face.bbox))
                         inside = self._in_zone_or_no_zone(box)
                         name, distance = match_face(face.embedding, db)
@@ -353,11 +365,19 @@ class CameraWorker:
                         else:
                             if not inside:
                                 continue
-                            self._log_and_alert(
-                                "unknown_person", is_unknown=True,
-                                confidence=1 - (distance or 0), frame=frame, in_zone=True,
+                            # De-dup against previously-seen unknown identities so the
+                            # same person keeps their Unknown-NNN label across sightings
+                            # instead of minting a new one every detection cycle.
+                            unknown_person, is_new = resolve_unknown_person(
+                                face.embedding, frame, db, self.camera_name,
                             )
-                            self._forensic_confirm(frame, "unknown_person")
+                            label = f"Unknown-{unknown_person.id:03d}"
+                            self._log_and_alert(
+                                "unknown_person", person_name=label, is_unknown=True,
+                                confidence=1 - (distance or 0), in_zone=True,
+                                snapshot_path=unknown_person.representative_snapshot_path,
+                            )
+                            self._forensic_confirm(frame, label)
                     
                     self.status["latest_detection_at"] = datetime.utcnow().isoformat()
                     

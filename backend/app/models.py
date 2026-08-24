@@ -1,7 +1,3 @@
-"""
-FILE PATH: backend/app/models.py
-ACTION: REPLACE ENTIRE FILE
-"""
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
@@ -67,6 +63,60 @@ class Zone(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class UnknownPerson(Base):
+    """One row per distinct unknown identity (Unknown-001, Unknown-002, ...)."""
+    __tablename__ = "unknown_persons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # First-ever embedding for this identity. Kept as a fallback match target
+    # (see unknown_person_service) for identities that predate per-sighting
+    # embeddings below, plus as a quick reference for promote_to_known().
+    reference_embedding = Column(Vector(EMBEDDING_DIM), nullable=False)
+    representative_snapshot_path = Column(String, nullable=True)
+    first_seen = Column(DateTime, default=datetime.utcnow)
+    last_seen = Column(DateTime, default=datetime.utcnow)
+
+    sightings = relationship(
+        "UnknownSighting", back_populates="unknown_person", cascade="all, delete-orphan"
+    )
+    embeddings = relationship(
+        "UnknownEmbedding", back_populates="unknown_person",
+        cascade="all, delete-orphan", order_by="UnknownEmbedding.id",
+    )
+
+
+class UnknownEmbedding(Base):
+    """
+    One row per sighting's embedding for an UnknownPerson (mirrors how
+    FaceEmbedding stores multiple photos per KnownFace). Matching against
+    ALL of a person's past embeddings — not just their first one — lets
+    the same person keep getting recognized across different angles/
+    lighting as more sightings accumulate.
+    """
+    __tablename__ = "unknown_embeddings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    unknown_person_id = Column(Integer, ForeignKey("unknown_persons.id"))
+    vector = Column(Vector(EMBEDDING_DIM))
+    snapshot_path = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    unknown_person = relationship("UnknownPerson", back_populates="embeddings")
+
+
+class UnknownSighting(Base):
+    """Every re-appearance of an UnknownPerson, across any camera."""
+    __tablename__ = "unknown_sightings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    unknown_person_id = Column(Integer, ForeignKey("unknown_persons.id"))
+    camera_name = Column(String)
+    snapshot_path = Column(String, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    unknown_person = relationship("UnknownPerson", back_populates="sightings")
+
+
 class Event(Base):
     __tablename__ = "events"
 
@@ -81,36 +131,3 @@ class Event(Base):
     object_name = Column(String, nullable=True)
     confidence = Column(Float, nullable=True)
     in_zone = Column(Boolean, default=True)  # whether it happened inside a defined zone
-
-
-# --- Unknown-person de-duplication (Requirements 6, 7, 14) ---
-# One stable row per distinct unknown individual (id doubles as the
-# "Unknown-NNN" identifier shown in the frontend), with many timestamped
-# unknown_sighting rows underneath it — this is what lets the system reuse
-# "Unknown-001" instead of creating Unknown-002, Unknown-003, ... for the
-# same person appearing repeatedly or on a different camera.
-
-class UnknownPerson(Base):
-    __tablename__ = "unknown_persons"
-
-    id = Column(Integer, primary_key=True, index=True)
-    reference_embedding = Column(Vector(EMBEDDING_DIM))
-    representative_snapshot_path = Column(String, nullable=True)
-    first_seen = Column(DateTime, default=datetime.utcnow)
-    last_seen = Column(DateTime, default=datetime.utcnow)
-
-    sightings = relationship(
-        "UnknownSighting", back_populates="person", cascade="all, delete-orphan"
-    )
-
-
-class UnknownSighting(Base):
-    __tablename__ = "unknown_sightings"
-
-    id = Column(Integer, primary_key=True, index=True)
-    unknown_person_id = Column(Integer, ForeignKey("unknown_persons.id"))
-    camera_name = Column(String, nullable=False)
-    snapshot_path = Column(String, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-
-    person = relationship("UnknownPerson", back_populates="sightings")

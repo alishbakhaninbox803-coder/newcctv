@@ -1,7 +1,3 @@
-"""
-FILE PATH: backend/app/config.py
-ACTION: REPLACE ENTIRE FILE
-"""
 import os
 from dotenv import load_dotenv
 
@@ -22,6 +18,18 @@ class Settings:
     WHATSAPP_ADMIN_NUMBER: str = os.getenv("WHATSAPP_ADMIN_NUMBER", "")
 
     UNKNOWN_FACE_THRESHOLD: float = float(os.getenv("UNKNOWN_FACE_THRESHOLD", 0.45))
+    # Alias for compatibility with code that references the older/alternate name.
+    UNKNOWN_PERSON_DISTANCE_THRESHOLD: float = UNKNOWN_FACE_THRESHOLD
+
+    # --- Strict frontal-face filtering ---
+    # Any face (known-face registration OR live camera detection) that fails these
+    # checks is dropped before it ever reaches matching/alerting logic.
+    FACE_MAX_YAW_DEG: float = float(os.getenv("FACE_MAX_YAW_DEG", 20))     # left/right turn
+    FACE_MAX_PITCH_DEG: float = float(os.getenv("FACE_MAX_PITCH_DEG", 20))  # up/down tilt
+    FACE_MAX_ROLL_DEG: float = float(os.getenv("FACE_MAX_ROLL_DEG", 25))   # head tilt sideways
+    FACE_MIN_DET_SCORE: float = float(os.getenv("FACE_MIN_DET_SCORE", 0.65))  # detector confidence
+    FACE_MIN_SHARPNESS: float = float(os.getenv("FACE_MIN_SHARPNESS", 60))   # blur/quality (Laplacian variance)
+    FACE_MIN_SIZE_PX: int = int(os.getenv("FACE_MIN_SIZE_PX", 60))  # min face box width/height in pixels
     RESTRICTED_OBJECTS: list = [
         o.strip().lower()
         for o in os.getenv("RESTRICTED_OBJECTS", "knife,gun,backpack").split(",")
@@ -40,29 +48,6 @@ class Settings:
     JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", 480))
     ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
     ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "cctv2024")
-
-    # --- Face quality gate (Requirement 1) ---
-    # Laplacian-variance blur score; a face crop below this is treated as
-    # too blurry to recognize reliably. Lower = more permissive.
-    MIN_BLUR_SCORE: float = float(os.getenv("MIN_BLUR_SCORE", 60.0))
-    # Minimum face bounding-box side length in pixels.
-    MIN_FACE_SIZE: int = int(os.getenv("MIN_FACE_SIZE", 40))
-    # InsightFace det_score below this is treated as too unreliable to use.
-    MIN_DETECTION_CONFIDENCE: float = float(os.getenv("MIN_DETECTION_CONFIDENCE", 0.6))
-
-    # --- Face orientation gate (Requirement 2) ---
-    MAX_YAW_DEGREES: float = float(os.getenv("MAX_YAW_DEGREES", 35.0))
-    MAX_PITCH_DEGREES: float = float(os.getenv("MAX_PITCH_DEGREES", 25.0))
-    # Fallback-only (used if a model bundle without `.pose` is ever swapped in)
-    MAX_LANDMARK_ASYMMETRY: float = float(os.getenv("MAX_LANDMARK_ASYMMETRY", 0.45))
-
-    # --- Unknown-person de-duplication (Requirement 6/14) ---
-    UNKNOWN_PERSON_DISTANCE_THRESHOLD: float = float(
-        os.getenv("UNKNOWN_PERSON_DISTANCE_THRESHOLD", 0.50)
-    )
-
-    # --- Recognition throttling via person tracking (performance) ---
-    RECOGNITION_INTERVAL_SECONDS: float = float(os.getenv("RECOGNITION_INTERVAL_SECONDS", 5.0))
 
 
 settings = Settings()
