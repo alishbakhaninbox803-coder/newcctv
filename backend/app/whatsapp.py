@@ -84,23 +84,29 @@ def _upload_media(image_path: str) -> str | None:
     return upload_media(image_path)
 
 
-def send_whatsapp_image_alert(image_path: str, caption: str) -> dict:
+def send_whatsapp_image_alert(snapshot_path: str, message: str) -> dict:
     """
-    Sends an image alert with a caption to WhatsApp Admin Number using WhatsApp Cloud API.
-    Uploads the snapshot image first, then sends the image message.
-    Falls back to text notification if image upload fails.
+    Sends a single image alert with a caption to the WhatsApp admin recipient.
+    Uploads the snapshot image to Meta WhatsApp Cloud API media endpoint,
+    then sends a single message with type 'image' and caption.
+    Falls back to text notification if image upload fails or image path is missing.
     """
     if not settings.WHATSAPP_TOKEN or not settings.WHATSAPP_PHONE_NUMBER_ID:
         print("[whatsapp] Skipped: WHATSAPP_TOKEN / PHONE_NUMBER_ID not configured.")
         return {"skipped": True}
 
-    if not image_path:
-        return send_whatsapp_text(caption)
+    recipient = settings.WHATSAPP_ADMIN_NUMBER
+    if not recipient:
+        print("[whatsapp] Skipped: WHATSAPP_ADMIN_NUMBER not configured.")
+        return {"skipped": True}
 
-    media_id = upload_media(image_path)
+    if not snapshot_path or not os.path.exists(snapshot_path):
+        return send_whatsapp_text(message)
+
+    media_id = upload_media(snapshot_path)
     if not media_id:
-        # Upload failed (bad path, network, token issue, etc.) — fallback to text alert
-        return send_whatsapp_text(caption)
+        # Upload failed — fallback to text alert
+        return send_whatsapp_text(message)
 
     url = f"https://graph.facebook.com/v19.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
     headers = {
@@ -109,9 +115,12 @@ def send_whatsapp_image_alert(image_path: str, caption: str) -> dict:
     }
     payload = {
         "messaging_product": "whatsapp",
-        "to": settings.WHATSAPP_ADMIN_NUMBER,
+        "to": recipient,
         "type": "image",
-        "image": {"id": media_id, "caption": caption},
+        "image": {
+            "id": media_id,
+            "caption": message,
+        },
     }
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=10)
@@ -121,6 +130,6 @@ def send_whatsapp_image_alert(image_path: str, caption: str) -> dict:
         return {"error": str(exc)}
 
 
-def send_whatsapp_image(image_path: str, caption: str) -> dict:
+def send_whatsapp_image(snapshot_path: str, message: str) -> dict:
     """Alias for send_whatsapp_image_alert."""
-    return send_whatsapp_image_alert(image_path, caption)
+    return send_whatsapp_image_alert(snapshot_path, message)
