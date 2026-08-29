@@ -29,7 +29,14 @@ def send_whatsapp_text(message: str) -> dict:
     }
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=10)
-        return resp.json()
+        result = resp.json()
+        # NEW: always log the real Meta response + HTTP status so failures
+        # are visible even when Swagger/the caller shows "success".
+        if resp.status_code >= 400 or "error" in result:
+            print(f"[whatsapp] TEXT SEND FAILED (status {resp.status_code}): {result}")
+        else:
+            print(f"[whatsapp] Text sent OK: {result}")
+        return result
     except Exception as exc:
         print(f"[whatsapp] Failed to send alert: {exc}")
         return {"error": str(exc)}
@@ -59,6 +66,12 @@ def send_whatsapp_image(image_path: str, caption: str = "") -> dict:
             data = {"messaging_product": "whatsapp", "type": "image/jpeg"}
             upload_resp = requests.post(upload_url, headers=headers, data=data, files=files, timeout=15)
         upload_json = upload_resp.json()
+
+        # NEW: log the upload step too — if this fails, everything after it
+        # was pointless, so we need to see it separately from the send step.
+        if upload_resp.status_code >= 400 or "id" not in upload_json:
+            print(f"[whatsapp] MEDIA UPLOAD FAILED (status {upload_resp.status_code}): {upload_json}")
+
         media_id = upload_json.get("id")
         if not media_id:
             print(f"[whatsapp] Media upload failed: {upload_json}")
@@ -74,7 +87,15 @@ def send_whatsapp_image(image_path: str, caption: str = "") -> dict:
         }
         send_headers = {**headers, "Content-Type": "application/json"}
         send_resp = requests.post(send_url, headers=send_headers, json=payload, timeout=10)
-        return send_resp.json()
+        result = send_resp.json()
+
+        # NEW: log the actual send result/status.
+        if send_resp.status_code >= 400 or "error" in result:
+            print(f"[whatsapp] IMAGE SEND FAILED (status {send_resp.status_code}): {result}")
+        else:
+            print(f"[whatsapp] Image sent OK: {result}")
+
+        return result
     except Exception as exc:
         print(f"[whatsapp] Failed to send image alert: {exc}")
         return {"error": str(exc)}

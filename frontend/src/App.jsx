@@ -1,7 +1,3 @@
-/*
-FILE PATH: frontend/src/App.jsx
-ACTION: REPLACE ENTIRE FILE
-*/
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -12,7 +8,7 @@ import DashboardPage from "./pages/DashboardPage";
 import EventsPage from "./pages/EventsPage";
 import AlertsPage from "./pages/AlertsPage";
 import PersonsPage from "./pages/PersonsPage";
-import UnknownPersonsPage from "./pages/unknownpersonspage";
+import UnknownReviewPage from "./pages/UnknownReviewPage";
 import ZoneEditorPage from "./pages/ZoneEditorPage";
 import StatsPage from "./pages/StatsPage";
 import HealthPage from "./pages/HealthPage";
@@ -38,7 +34,7 @@ export default function App() {
             <Route path="/events" element={<ProtectedRoute><EventsPage /></ProtectedRoute>} />
             <Route path="/alerts" element={<ProtectedRoute><AlertsPage /></ProtectedRoute>} />
             <Route path="/persons" element={<ProtectedRoute><PersonsPage /></ProtectedRoute>} />
-            <Route path="/unknown-persons" element={<ProtectedRoute><UnknownPersonsPage /></ProtectedRoute>} />
+            <Route path="/unknown-review" element={<ProtectedRoute><UnknownReviewPage /></ProtectedRoute>} />
             <Route path="/zone-editor" element={<ProtectedRoute><ZoneEditorPage /></ProtectedRoute>} />
             <Route path="/stats" element={<ProtectedRoute><StatsPage /></ProtectedRoute>} />
             <Route path="/health" element={<ProtectedRoute><HealthPage /></ProtectedRoute>} />

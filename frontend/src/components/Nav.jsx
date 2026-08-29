@@ -1,7 +1,3 @@
-/*
-FILE PATH: frontend/src/components/Nav.jsx
-ACTION: REPLACE ENTIRE FILE
-*/
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 
@@ -10,7 +6,7 @@ const links = [
   { to: "/events", label: "Events" },
   { to: "/alerts", label: "Alerts" },
   { to: "/persons", label: "Persons" },
-  { to: "/unknown-persons", label: "Unknown Persons" },
+  { to: "/unknown-review", label: "Unknown Review" },
   { to: "/zone-editor", label: "Zone Editor" },
   { to: "/stats", label: "Stats" },
   { to: "/health", label: "Health" },

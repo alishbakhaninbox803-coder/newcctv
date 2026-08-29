@@ -25,9 +25,13 @@ class KnownFace(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     photo_path = Column(String, nullable=True)  # cover/first photo
+    # Profile fields (CCTV Known/Unknown Identification spec, Section 2)
+    company = Column(String, nullable=True)
+    branch = Column(String, nullable=True)
+    role = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # one person can now have MULTIPLE embeddings (multi-photo registration)
+    # one person can have MULTIPLE embeddings (multi-photo registration)
     embeddings = relationship(
         "FaceEmbedding", back_populates="face", cascade="all, delete-orphan"
     )
@@ -40,6 +44,10 @@ class FaceEmbedding(Base):
     face_id = Column(Integer, ForeignKey("known_faces.id"))
     vector = Column(Vector(EMBEDDING_DIM))
     photo_path = Column(String, nullable=True)
+    # Insertion timestamp — required for FIFO reference-image replacement
+    # (Known/Unknown Identification spec, Section 7: FIFO must be based on
+    # stored insertion timestamp, not filename).
+    added_at = Column(DateTime, default=datetime.utcnow)
 
     face = relationship("KnownFace", back_populates="embeddings")
 
@@ -63,60 +71,6 @@ class Zone(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class UnknownPerson(Base):
-    """One row per distinct unknown identity (Unknown-001, Unknown-002, ...)."""
-    __tablename__ = "unknown_persons"
-
-    id = Column(Integer, primary_key=True, index=True)
-    # First-ever embedding for this identity. Kept as a fallback match target
-    # (see unknown_person_service) for identities that predate per-sighting
-    # embeddings below, plus as a quick reference for promote_to_known().
-    reference_embedding = Column(Vector(EMBEDDING_DIM), nullable=False)
-    representative_snapshot_path = Column(String, nullable=True)
-    first_seen = Column(DateTime, default=datetime.utcnow)
-    last_seen = Column(DateTime, default=datetime.utcnow)
-
-    sightings = relationship(
-        "UnknownSighting", back_populates="unknown_person", cascade="all, delete-orphan"
-    )
-    embeddings = relationship(
-        "UnknownEmbedding", back_populates="unknown_person",
-        cascade="all, delete-orphan", order_by="UnknownEmbedding.id",
-    )
-
-
-class UnknownEmbedding(Base):
-    """
-    One row per sighting's embedding for an UnknownPerson (mirrors how
-    FaceEmbedding stores multiple photos per KnownFace). Matching against
-    ALL of a person's past embeddings — not just their first one — lets
-    the same person keep getting recognized across different angles/
-    lighting as more sightings accumulate.
-    """
-    __tablename__ = "unknown_embeddings"
-
-    id = Column(Integer, primary_key=True, index=True)
-    unknown_person_id = Column(Integer, ForeignKey("unknown_persons.id"))
-    vector = Column(Vector(EMBEDDING_DIM))
-    snapshot_path = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    unknown_person = relationship("UnknownPerson", back_populates="embeddings")
-
-
-class UnknownSighting(Base):
-    """Every re-appearance of an UnknownPerson, across any camera."""
-    __tablename__ = "unknown_sightings"
-
-    id = Column(Integer, primary_key=True, index=True)
-    unknown_person_id = Column(Integer, ForeignKey("unknown_persons.id"))
-    camera_name = Column(String)
-    snapshot_path = Column(String, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-
-    unknown_person = relationship("UnknownPerson", back_populates="sightings")
-
-
 class Event(Base):
     __tablename__ = "events"
 
@@ -131,3 +85,55 @@ class Event(Base):
     object_name = Column(String, nullable=True)
     confidence = Column(Float, nullable=True)
     in_zone = Column(Boolean, default=True)  # whether it happened inside a defined zone
+
+    # Known/Unknown identification workflow (manual "Make Known" confirmation)
+    known_face_id = Column(Integer, ForeignKey("known_faces.id"), nullable=True)
+    confirmed_by = Column(String, nullable=True)   # operator username
+    confirmed_at = Column(DateTime, nullable=True)
+
+
+class UnknownPerson(Base):
+    __tablename__ = "unknown_persons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    reference_embedding = Column(Vector(EMBEDDING_DIM), nullable=True)
+    representative_snapshot_path = Column(String, nullable=True)
+    first_seen = Column(DateTime, nullable=True)
+    last_seen = Column(DateTime, nullable=True)
+
+    embeddings = relationship(
+        "UnknownEmbedding",
+        back_populates="unknown_person",
+        cascade="all, delete-orphan",
+        order_by="UnknownEmbedding.id",
+    )
+    sightings = relationship(
+        "UnknownSighting",
+        back_populates="unknown_person",
+        cascade="all, delete-orphan",
+        order_by="UnknownSighting.id",
+    )
+
+
+class UnknownEmbedding(Base):
+    __tablename__ = "unknown_embeddings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    unknown_person_id = Column(Integer, ForeignKey("unknown_persons.id"))
+    vector = Column(Vector(EMBEDDING_DIM), nullable=True)
+    snapshot_path = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=True)
+
+    unknown_person = relationship("UnknownPerson", back_populates="embeddings")
+
+
+class UnknownSighting(Base):
+    __tablename__ = "unknown_sightings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    unknown_person_id = Column(Integer, ForeignKey("unknown_persons.id"))
+    camera_name = Column(String, nullable=False)
+    snapshot_path = Column(String, nullable=True)
+    timestamp = Column(DateTime, nullable=True)
+
+    unknown_person = relationship("UnknownPerson", back_populates="sightings")

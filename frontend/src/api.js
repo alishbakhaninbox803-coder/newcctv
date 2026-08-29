@@ -1,7 +1,3 @@
-/*
-FILE PATH: frontend/src/api.js
-ACTION: REPLACE ENTIRE FILE
-*/
 import axios from "axios";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
@@ -50,14 +46,6 @@ export const getCameras = () => api.get("/camera/list").then((r) => r.data);
 export const getHealth = () => api.get("/health").then((r) => r.data);
 export const getZone = (cameraId) => api.get(`/zones/${cameraId}`).then((r) => r.data);
 
-// --- Unknown persons (Requirements 8-11) ---
-export const getUnknownPersons = () => api.get("/unknown-persons").then((r) => r.data);
-export const getUnknownPerson = (id) => api.get(`/unknown-persons/${id}`).then((r) => r.data);
-export const getUnknownSightings = (id) =>
-  api.get(`/unknown-persons/${id}/sightings`).then((r) => r.data);
-export const convertUnknownToKnown = (id, name) =>
-  api.post(`/unknown-persons/${id}/convert-to-known`, { name }).then((r) => r.data);
-
 // --- Mutating (require login) ---
 export const addCamera = (name, source) =>
   api.post("/camera/add", { name, source }).then((r) => r.data);
@@ -68,9 +56,12 @@ export const startCamera = (cameraId) =>
 export const stopCamera = (cameraId) =>
   api.post(`/camera/stop?camera_id=${cameraId}`).then((r) => r.data);
 
-export const registerFace = (name, files) => {
+export const registerFace = (name, files, extra = {}) => {
   const form = new FormData();
   form.append("name", name);
+  if (extra.company) form.append("company", extra.company);
+  if (extra.branch) form.append("branch", extra.branch);
+  if (extra.role) form.append("role", extra.role);
   files.forEach((f) => form.append("files", f));
   return api.post("/register-face", form).then((r) => r.data);
 };
@@ -84,17 +75,47 @@ export const saveZone = (cameraId, points) =>
 export const deleteZone = (cameraId) =>
   api.delete(`/zones/${cameraId}`).then((r) => r.data);
 
+// --- Known/Unknown identification workflow ---
+export const confirmKnownPerson = (eventId, knownFaceId) =>
+  api.post(`/events/${eventId}/confirm-known`, { known_face_id: knownFaceId }).then((r) => r.data);
+
+// --- Unknown Persons dashboard (dedicated per-identity folders) ---
+export const getUnknownPersons = () => api.get("/unknown-persons").then((r) => r.data);
+export const getUnknownPersonSightings = (unknownPersonId) =>
+  api.get(`/unknown-persons/${unknownPersonId}/sightings`).then((r) => r.data);
+export const convertUnknownToKnown = (unknownPersonId, name) =>
+  api.post(`/unknown-persons/${unknownPersonId}/convert-to-known`, { name }).then((r) => r.data);
+
+// --- Known person profile: view / add / delete / set-cover photos ---
+export const getFacePhotos = (faceId) => api.get(`/known-faces/${faceId}/photos`).then((r) => r.data);
+export const addFacePhoto = (faceId, file) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post(`/known-faces/${faceId}/photos`, form).then((r) => r.data);
+};
+export const deleteFacePhoto = (faceId, embeddingId) =>
+  api.delete(`/known-faces/${faceId}/photos/${embeddingId}`).then((r) => r.data);
+export const setCoverPhoto = (faceId, embeddingId) =>
+  api.put(`/known-faces/${faceId}/cover/${embeddingId}`).then((r) => r.data);
+
 // --- Helpers ---
-// Preserves the category subfolder (known/unknown/restricted/forensic) now
-// used in snapshot_path, instead of just the filename. Old flat-folder
-// paths (saved before this change) still resolve fine via the fallback.
+// snapshot_path from the backend can be either flat ("data/snapshots/foo.jpg")
+// or nested inside a per-person folder ("data/snapshots/unknown/Unknown-017/foo.jpg").
+// The static mount serves everything under data/snapshots/, so we must keep
+// the FULL relative path after "data/snapshots/", not just the filename.
 export const snapshotUrl = (path) => {
   if (!path) return null;
-  const marker = "snapshots/";
   const normalized = path.replace(/\\/g, "/");
-  const idx = normalized.indexOf(marker);
-  const relative = idx >= 0 ? normalized.slice(idx + marker.length) : normalized.split("/").pop();
-  return `${API_BASE}/snapshots/${relative}`;
+  const marker = "data/snapshots/";
+  const markerIndex = normalized.indexOf(marker);
+  const relative =
+    markerIndex >= 0 ? normalized.slice(markerIndex + marker.length) : normalized.split("/").pop();
+  const encodedPath = relative
+    .split("/")
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join("/");
+  return `${API_BASE}/snapshots/${encodedPath}`;
 };
 
 export const videoFeedUrl = (cameraId) => {

@@ -2,8 +2,8 @@
 Centralized unknown-person de-duplication + conversion service.
 
 Each distinct Unknown identity gets exactly ONE dedicated folder:
-    data/snapshots/unknown/Unknown-001/snapshot_<timestamp>.jpg
-    data/snapshots/unknown/Unknown-001/snapshot_<timestamp>.jpg
+    data/snapshots/unknown/Unknown-001/snapshot_<timestamp>.webp
+    data/snapshots/unknown/Unknown-001/snapshot_<timestamp>.webp
     ...
 Every subsequent sighting of that same person (any camera, any time) adds
 another file into that SAME folder — never a new folder, never a new ID —
@@ -15,16 +15,26 @@ import shutil
 import cv2
 import numpy as np
 from datetime import datetime
-from sqlalchemy import text, select
+from sqlalchemy import text, select, func
 from sqlalchemy.orm import Session
 
 from app.models import UnknownPerson, UnknownEmbedding, UnknownSighting, KnownFace, FaceEmbedding
 from app.config import settings
+from app.face_quality import _variance_of_laplacian
 
 # Any fixed 64-bit key works here - it only needs to be the same key on
 # every call so pg_advisory_xact_lock() serializes match-or-create across
 # every camera worker / process talking to this database.
 _DEDUP_LOCK_KEY = 913_223_001
+
+# Max reference photos kept per registered known person (same FIFO cap as
+# the Known/Unknown Identification spec's manual "Make Known" flow).
+MAX_FACE_IMAGES = 4
+
+# Sharpness floor for "clear" (variance-of-laplacian). Kept local instead of
+# reading from settings.MIN_BLUR_SCORE, since that attribute name doesn't
+# exist in this project's config.py — avoids a config mismatch crash.
+_MIN_BLUR_SCORE = 50.0
 
 
 def _cosine_distance(embedding: np.ndarray, stored_vector) -> float:
@@ -74,12 +84,22 @@ def _unknown_folder(unknown_id: int) -> str:
 
 
 def _save_snapshot_into(folder: str, camera_name: str, frame: np.ndarray) -> str:
+    """
+    Saves as WebP (smaller files than JPEG at similar visual quality). If
+    this particular OpenCV build lacks WebP encoder support, imwrite()
+    returns False instead of raising — in that case we fall back to JPEG
+    so a snapshot never silently fails to save.
+    """
     os.makedirs(folder, exist_ok=True)
     # Timestamp-based filename keeps every snapshot unique, so repeated
     # sightings never overwrite each other inside the same folder.
-    filename = f"{camera_name}_{int(time.time()*1000)}.jpg"
+    filename = f"{camera_name}_{int(time.time()*1000)}.webp"
     path = f"{folder}/{filename}"
-    cv2.imwrite(path, frame)
+    success = cv2.imwrite(path, frame, [cv2.IMWRITE_WEBP_QUALITY, 90])
+    if not success:
+        filename = f"{camera_name}_{int(time.time()*1000)}.jpg"
+        path = f"{folder}/{filename}"
+        cv2.imwrite(path, frame)
     return path
 
 
@@ -179,22 +199,35 @@ def resolve_unknown_person(
     return new_person, True
 
 
+def _score_snapshot(path: str) -> float:
+    """Reuses the same sharpness metric as face_quality.py's clarity gate,
+    so 'clear' here means the same thing it means everywhere else in the
+    app, not a new/different definition."""
+    frame = cv2.imread(path)
+    if frame is None:
+        return -1.0
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    return _variance_of_laplacian(gray)
+
+
 def promote_to_known(unknown_person_id: int, name: str, db: Session) -> KnownFace:
     """
-    Converts an unknown_person identity into a registered, named known_face.
+    Converts an unknown_person identity into a registered known_face.
 
-      - Creates a new KnownFace(name=...).
-      - Moves EVERY file out of unknown/Unknown-NNN/ into a new dedicated
-        known/{name}_{known_face.id}/ folder (not just the representative
-        snapshot) — matching the multi-photo registration pattern, each
-        moved photo gets its own FaceEmbedding row (all seeded with the
-        same reference_embedding, since only one embedding was ever
-        computed for this identity) so `photo_count` in the UI is accurate
-        and every photo is individually viewable, exactly like manually-
-        registered known faces.
-      - Deletes the now-empty Unknown-NNN folder and the unknown_person row
-        (unknown_sighting history cascades away with it — that history no
-        longer applies, the person is now a known, named individual).
+      - If a KnownFace with this name ALREADY exists, reuses it instead of
+        creating a duplicate — the new photo is added to that existing
+        person's set (this is the fix for "two Alishba Khan entries").
+      - Only ONE unknown snapshot is kept per conversion: the CLEAREST,
+        MOST RECENT one on file — scored with the same sharpness metric
+        used by face_quality.py's clarity gate — not every sighting.
+      - A hard cap of MAX_FACE_IMAGES (4) reference photos per known
+        person is enforced: once full, adding the new photo evicts the
+        OLDEST existing one (by FaceEmbedding.added_at), matching the
+        FIFO rule from the Known/Unknown Identification spec.
+      - Every other unknown snapshot (not selected) is discarded along
+        with the now-retired Unknown-NNN folder — the unknown_person row
+        is deleted either way, so nothing is left orphaned on disk or in
+        the DB.
 
     Raises ValueError if the unknown_person_id doesn't exist.
     """
@@ -202,79 +235,129 @@ def promote_to_known(unknown_person_id: int, name: str, db: Session) -> KnownFac
     if unknown_person is None:
         raise ValueError("unknown_person not found")
 
-    known_face = KnownFace(name=name)
-    db.add(known_face)
-    db.flush()  # assigns known_face.id
+    normalized_name = name.strip()
 
-    known_dir = f"{settings.SNAPSHOT_DIR}/known/{name}_{known_face.id}"
+    # Reuse an existing person with the same name (case-insensitive) instead
+    # of creating a duplicate KnownFace row.
+    known_face = (
+        db.query(KnownFace)
+        .filter(func.lower(KnownFace.name) == normalized_name.lower())
+        .first()
+    )
+    is_new_known_face = known_face is None
+    if known_face is None:
+        known_face = KnownFace(name=normalized_name)
+        db.add(known_face)
+        db.flush()  # assigns known_face.id
+
+    known_dir = f"{settings.SNAPSHOT_DIR}/known/{normalized_name}_{known_face.id}"
     os.makedirs(known_dir, exist_ok=True)
 
     unknown_dir = _unknown_folder(unknown_person.id)
-    cover_photo_path = None
-    moved_count = 0
-
     # Snapshot -> embedding pairing: every resolve_unknown_person() match
     # inserts exactly one UnknownSighting (a file) and one UnknownEmbedding
     # together, so the two lists stay 1:1 and chronologically aligned.
     stored_embeddings = list(unknown_person.embeddings)  # ordered by id (chronological)
 
+    # Gather every candidate photo with its embedding + sharpness score.
+    candidates = []
     if os.path.isdir(unknown_dir):
         files = sorted(f for f in os.listdir(unknown_dir) if os.path.isfile(os.path.join(unknown_dir, f)))
         for idx, fname in enumerate(files):
             src = os.path.join(unknown_dir, fname)
-            dst = os.path.join(known_dir, fname)
-            shutil.move(src, dst)
-            # Use this sighting's own embedding when we have one on file;
-            # fall back to the identity's original reference embedding for
-            # any file left over from before per-sighting embeddings existed.
             vector = (
                 stored_embeddings[idx].vector
                 if idx < len(stored_embeddings)
                 else unknown_person.reference_embedding
             )
-            db.add(
-                FaceEmbedding(
-                    face_id=known_face.id,
-                    vector=vector,
-                    photo_path=dst,
-                )
-            )
-            cover_photo_path = dst
-            moved_count += 1
-        try:
-            os.rmdir(unknown_dir)  # now empty — remove the folder itself
-        except OSError:
-            pass
+            candidates.append({
+                "src": src,
+                "vector": vector,
+                "quality": _score_snapshot(src),
+                "mtime": os.path.getmtime(src),
+            })
     elif unknown_person.representative_snapshot_path and os.path.exists(
         unknown_person.representative_snapshot_path
     ):
         # Backward-compat fallback for identities created before this
         # per-folder layout existed.
         src = unknown_person.representative_snapshot_path
-        dst = os.path.join(known_dir, os.path.basename(src))
-        shutil.move(src, dst)
-        db.add(
-            FaceEmbedding(
-                face_id=known_face.id,
-                vector=unknown_person.reference_embedding,
-                photo_path=dst,
-            )
-        )
+        candidates.append({
+            "src": src,
+            "vector": unknown_person.reference_embedding,
+            "quality": _score_snapshot(src),
+            "mtime": os.path.getmtime(src),
+        })
+
+    # "Clear and latest": newest first, pick the first one that meets the
+    # sharpness floor. If NONE meet it, fall back to the single sharpest
+    # candidate rather than ending up with zero photos for a real
+    # conversion. Only ONE photo is ever selected here — not the whole set.
+    candidates.sort(key=lambda c: c["mtime"], reverse=True)
+    qualified = [c for c in candidates if c["quality"] >= _MIN_BLUR_SCORE]
+    if qualified:
+        best_candidate = qualified[0]  # newest among the clear ones
+    elif candidates:
+        best_candidate = max(candidates, key=lambda c: c["quality"])  # sharpest available, as a fallback
+    else:
+        best_candidate = None
+    clear_candidates = [best_candidate] if best_candidate else []
+
+    # Current photo set for this known person, oldest first, so we know
+    # exactly how much room is left before FIFO eviction kicks in.
+    existing_embeddings = (
+        db.query(FaceEmbedding)
+        .filter(FaceEmbedding.face_id == known_face.id)
+        .order_by(FaceEmbedding.added_at.asc())
+        .all()
+    )
+
+    moved_count = 0
+    cover_photo_path = known_face.photo_path  # keep current cover unless we set a new one below
+    for candidate in clear_candidates:
+        if len(existing_embeddings) >= MAX_FACE_IMAGES:
+            oldest = existing_embeddings.pop(0)  # FIFO: oldest by added_at, per the spec
+            if oldest.photo_path and os.path.exists(oldest.photo_path):
+                try:
+                    os.remove(oldest.photo_path)
+                except OSError:
+                    pass
+            db.delete(oldest)
+            db.flush()
+
+        dst = os.path.join(known_dir, os.path.basename(candidate["src"]))
+        shutil.move(candidate["src"], dst)
+        new_embedding = FaceEmbedding(face_id=known_face.id, vector=candidate["vector"], photo_path=dst)
+        db.add(new_embedding)
+        db.flush()
+        existing_embeddings.append(new_embedding)
         cover_photo_path = dst
-        moved_count = 1
+        moved_count += 1
 
-    if moved_count == 0:
-        # No files existed on disk at all — still seed one embedding so the
-        # person is recognizable, just with no photo attached.
-        db.add(
-            FaceEmbedding(
-                face_id=known_face.id,
-                vector=unknown_person.reference_embedding,
-                photo_path=None,
-            )
-        )
+    # Discard anything left in the unknown folder that wasn't selected
+    # (the rest of the sightings) — this identity is being retired regardless.
+    if os.path.isdir(unknown_dir):
+        for fname in os.listdir(unknown_dir):
+            fpath = os.path.join(unknown_dir, fname)
+            if os.path.isfile(fpath):
+                try:
+                    os.remove(fpath)
+                except OSError:
+                    pass
+        try:
+            os.rmdir(unknown_dir)
+        except OSError:
+            pass
 
-    known_face.photo_path = cover_photo_path
+    if moved_count == 0 and is_new_known_face:
+        # No usable photo at all for a brand-new person — still seed one
+        # embedding so they're recognizable, just with no photo attached.
+        db.add(FaceEmbedding(
+            face_id=known_face.id, vector=unknown_person.reference_embedding, photo_path=None
+        ))
+
+    if cover_photo_path:
+        known_face.photo_path = cover_photo_path
 
     db.delete(unknown_person)  # cascades to unknown_sighting rows
     db.commit()

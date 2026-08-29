@@ -1,7 +1,3 @@
-"""
-FILE PATH: backend/app/schemas.py
-ACTION: REPLACE ENTIRE FILE
-"""
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, Union
@@ -18,6 +14,9 @@ class EventOut(BaseModel):
     object_name: Optional[str] = None
     confidence: Optional[float] = None
     in_zone: bool
+    known_face_id: Optional[int] = None
+    confirmed_by: Optional[str] = None
+    confirmed_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -27,8 +26,38 @@ class KnownFaceOut(BaseModel):
     id: int
     name: str
     photo_path: Optional[str] = None
+    company: Optional[str] = None
+    branch: Optional[str] = None
+    role: Optional[str] = None
     created_at: datetime
     photo_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class ConfirmKnownIn(BaseModel):
+    """Body for POST /events/{event_id}/confirm-known"""
+    known_face_id: int
+
+
+class UnknownPersonOut(BaseModel):
+    id: int
+    representative_snapshot_path: Optional[str] = None
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+    detection_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class UnknownSightingOut(BaseModel):
+    id: int
+    unknown_person_id: int
+    camera_name: str
+    snapshot_path: Optional[str] = None
+    timestamp: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -102,7 +131,6 @@ class WorkerHealth(BaseModel):
     insightface_inference_ms: Optional[float] = None
     detection_frame_age_ms: Optional[float] = None
     detection_frames_skipped: int = 0
-    active_tracks: int = 0
     latest_detection_at: Optional[str] = None
 
 
@@ -119,27 +147,3 @@ class HealthOut(BaseModel):
     database_connected: bool
     workers: list[WorkerHealth]
     system: Optional[SystemResources] = None
-
-
-# --- Unknown persons (Requirements 7, 8, 9) ---
-
-class UnknownPersonOut(BaseModel):
-    id: int
-    first_seen: datetime
-    last_seen: datetime
-    representative_snapshot_path: Optional[str] = None
-    detection_count: int = 0
-
-    class Config:
-        from_attributes = True
-
-
-class UnknownSightingOut(BaseModel):
-    id: int
-    unknown_person_id: int
-    camera_name: str
-    snapshot_path: Optional[str] = None
-    timestamp: datetime
-
-    class Config:
-        from_attributes = True
