@@ -1,7 +1,17 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from backend/ or project root directory
+_backend_env = Path(__file__).resolve().parent.parent / ".env"
+_root_env = Path(__file__).resolve().parent.parent.parent / ".env"
+
+if _root_env.is_file():
+    load_dotenv(dotenv_path=_root_env)
+elif _backend_env.is_file():
+    load_dotenv(dotenv_path=_backend_env)
+else:
+    load_dotenv()
 
 
 class Settings:
@@ -39,6 +49,15 @@ class Settings:
     # Two-tier detection: light model runs continuously, heavier model confirms trespass events
     LIGHT_MODEL: str = os.getenv("LIGHT_MODEL", "yolov8n.pt")
     FORENSIC_MODEL: str = os.getenv("FORENSIC_MODEL", "yolov8m.pt")
+
+    # --- Weapon Detection ---
+    WEAPON_DETECTION_ENABLED: bool = os.getenv("WEAPON_DETECTION_ENABLED", "true").lower() in ("true", "1", "yes")
+    WEAPON_MODEL_PATH: str = os.getenv("WEAPON_MODEL_PATH", "models/weapon/weapon-yolo26x/best.pt")
+    WEAPON_CONFIDENCE: float = float(os.getenv("WEAPON_CONFIDENCE", "0.55"))
+    WEAPON_CONFIRMATION_COUNT: int = int(os.getenv("WEAPON_CONFIRMATION_COUNT", "3"))
+    WEAPON_CONFIRMATION_WINDOW_SECONDS: float = float(os.getenv("WEAPON_CONFIRMATION_WINDOW_SECONDS", "2.0"))
+    WEAPON_COOLDOWN_SECONDS: float = float(os.getenv("WEAPON_COOLDOWN_SECONDS", "30.0"))
+    WEAPON_FORENSIC_ENABLED: bool = os.getenv("WEAPON_FORENSIC_ENABLED", "true").lower() in ("true", "1", "yes")
 
     SNAPSHOT_DIR: str = os.getenv("SNAPSHOT_DIR", "data/snapshots")
 

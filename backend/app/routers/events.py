@@ -31,11 +31,11 @@ def get_events(
 
 @router.get("/alerts", response_model=list[EventOut])
 def get_alerts(limit: int = Query(50, le=500), db: Session = Depends(get_db)):
-    """Alerts = unknown persons + restricted objects + forensic confirmations."""
+    """Alerts = unknown persons + restricted objects + forensic confirmations + weapon detections."""
     return (
         db.query(Event)
         .filter(Event.event_type.in_(
-            ["unknown_person", "restricted_object", "forensic_confirmation"]
+            ["unknown_person", "restricted_object", "forensic_confirmation", "weapon_detected"]
         ))
         .order_by(desc(Event.timestamp))
         .limit(limit)

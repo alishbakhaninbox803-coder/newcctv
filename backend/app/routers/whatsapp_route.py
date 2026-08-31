@@ -3,15 +3,12 @@ import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
+from app.config import settings
 from app.whatsapp import send_whatsapp_text, send_whatsapp_image_alert
 
 router = APIRouter(tags=["WhatsApp"])
 
-# Snapshots live under this folder — adjust if your project's snapshot
-# root is different.
-SNAPSHOT_ROOT = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "snapshots"
-)
+SNAPSHOT_ROOT = settings.SNAPSHOT_DIR
 
 
 class WhatsAppMessage(BaseModel):

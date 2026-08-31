@@ -8,7 +8,16 @@ from app.config import settings
 
 
 def _configured() -> bool:
-    return bool(settings.WHATSAPP_TOKEN and settings.WHATSAPP_PHONE_NUMBER_ID)
+    token = (settings.WHATSAPP_TOKEN or "").strip()
+    phone_id = (settings.WHATSAPP_PHONE_NUMBER_ID or "").strip()
+    admin_num = (settings.WHATSAPP_ADMIN_NUMBER or "").strip()
+    
+    # Ignore unset or default placeholder values
+    if not token or not phone_id or not admin_num:
+        return False
+    if "your_" in token or "your_" in phone_id or "91xxxx" in admin_num:
+        return False
+    return True
 
 
 def send_whatsapp_text(message: str) -> dict:
@@ -136,3 +145,17 @@ def build_restricted_object_message(camera_name, object_name, timestamp, confide
         f"Time: {timestamp}\n"
         f"Confidence: {confidence:.0%}"
     )
+
+
+def build_weapon_message(camera_name, weapon_class, timestamp, confidence, zone_name=None, forensic_confirmed=True):
+    zone_str = f"\nZone: {zone_name}" if zone_name else ""
+    verif_str = "Confirmed" if forensic_confirmed else "Primary Alert"
+    return (
+        "⚠️ Weapon Detected\n"
+        f"Camera: {camera_name}\n"
+        f"Type: {weapon_class.capitalize()}\n"
+        f"Confidence: {confidence:.0%}"
+        f"{zone_str}\n"
+        f"Time: {timestamp}\n"
+        f"Verification: {verif_str}"
+    )

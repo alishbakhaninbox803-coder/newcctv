@@ -5,6 +5,7 @@ const badgeColor = {
   restricted_object: "bg-orange-600",
   known_person: "bg-green-600",
   forensic_confirmation: "bg-purple-600",
+  weapon_detected: "bg-rose-700 text-rose-100 font-bold",
 };
 
 export default function EventsTable({ events }) {

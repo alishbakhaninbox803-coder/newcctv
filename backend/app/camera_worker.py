@@ -34,13 +34,15 @@ from app.whatsapp import (
     send_whatsapp_image_alert,
     build_unknown_person_message,
     build_restricted_object_message,
+    build_weapon_message,
 )
 from app.unknown_person_service import resolve_unknown_person
+from app.weapon_engine import weapon_engine, CameraWeaponTracker
 from app.config import settings
 from app.stream_manager import publish_frame, clear_frame
 
 logger = logging.getLogger(__name__)
-INFER_EVERY_N_FRAMES = 30  # Run detection every 30 frames (~1 FPS) to keep video stream smooth
+INFER_EVERY_N_FRAMES = 15  # Run detection every 15 frames (~2 FPS at 30 FPS input)
 STREAM_JPEG_QUALITY = 70 # Reduce JPEG quality to 50% for faster streaming
 
 
@@ -65,6 +67,7 @@ class CameraWorker:
         self._detection_frame_time = None  # Capture timestamp for age calc
         self._detection_lock = threading.Lock()
         self._detection_event = threading.Event()
+        self.weapon_tracker = CameraWeaponTracker(self.camera_id)
 
         self.status = {
             # Availability
@@ -121,9 +124,11 @@ class CameraWorker:
             self._detection_thread.join(timeout=2)
         clear_frame(self.camera_id)
 
-    def _save_snapshot(self, frame) -> str:
+    def _save_snapshot(self, frame, category: str = "misc") -> str:
+        folder = f"{settings.SNAPSHOT_DIR}/{category}"
+        os.makedirs(folder, exist_ok=True)
         filename = f"{self.camera_name}_{int(time.time()*1000)}.jpg"
-        path = f"{settings.SNAPSHOT_DIR}/{filename}"
+        path = f"{folder}/{filename}"
         cv2.imwrite(path, frame)
         return path
 
@@ -175,6 +180,16 @@ class CameraWorker:
         elif event_type == "restricted_object":
             msg = build_restricted_object_message(
                 self.camera_name, object_name, datetime.utcnow().strftime("%I:%M %p"), confidence or 0
+            )
+            send_whatsapp_image_alert(snapshot_path, msg)
+        elif event_type == "weapon_detected":
+            msg = build_weapon_message(
+                self.camera_name,
+                object_name or "Weapon",
+                datetime.utcnow().strftime("%I:%M %p"),
+                confidence or 0,
+                zone_name=f"Camera {self.camera_id} Zone" if in_zone else None,
+                forensic_confirmed=True,
             )
             send_whatsapp_image_alert(snapshot_path, msg)
 
@@ -331,7 +346,41 @@ class CameraWorker:
                     )
                 
                 try:
-                    # --- Object detection (light model) — timed separately ---
+                    # 1. --- Weapon Detection & Temporal Confirmation (PRIORITY) ---
+                    if settings.WEAPON_DETECTION_ENABLED and weapon_engine.is_ready:
+                        try:
+                            w_detections = weapon_engine.detect(frame)
+                            for w_obj in w_detections:
+                                inside_zone = self._in_zone_or_no_zone(w_obj["bbox"])
+                                if not inside_zone:
+                                    continue  # Filtered by zone
+
+                                is_confirmed, event_data = self.weapon_tracker.register_detection(
+                                    class_name=w_obj["class_name"],
+                                    confidence=w_obj["confidence"],
+                                    bbox=w_obj["bbox"],
+                                )
+
+                                print(f"\033[93m[{self.camera_name}] [WEAPON CANDIDATE] {w_obj['class_name']} ({w_obj['confidence']:.1%}, confirmed: {is_confirmed})\033[0m")
+                                logger.info(f"[{self.camera_name}] Weapon candidate: {w_obj['class_name']} (conf: {w_obj['confidence']:.2f}, confirmed: {is_confirmed})")
+
+                                if is_confirmed:
+                                    print(f"\033[91m[{self.camera_name}] >>> WEAPON ALERT TRIGGERED: {event_data['class_name']} ({event_data['confidence']:.1%}) <<<\033[0m")
+
+                                    # Save clean snapshot (NO bounding boxes rendered)
+                                    snap_path = self._save_snapshot(frame, category="weapon")
+
+                                    self._log_and_alert(
+                                        "weapon_detected",
+                                        object_name=event_data["class_name"],
+                                        confidence=event_data["confidence"],
+                                        in_zone=True,
+                                        snapshot_path=snap_path,
+                                    )
+                        except Exception as w_exc:
+                            logger.error(f"[{self.camera_name}] Error during weapon detection: {w_exc}", exc_info=True)
+
+                    # 2. --- Object detection (light model) ---
                     t_yolo = time.time()
                     detections = detect_objects(frame)
                     self.status["yolo_inference_ms"] = round((time.time() - t_yolo) * 1000, 1)
@@ -346,7 +395,7 @@ class CameraWorker:
                         )
                         self._forensic_confirm(frame, obj["label"])
 
-                    # --- Face recognition — timed separately ---
+                    # 3. --- Face recognition ---
                     t_face = time.time()
                     faces = extract_faces(frame)
                     self.status["insightface_inference_ms"] = round((time.time() - t_face) * 1000, 1)
@@ -365,9 +414,6 @@ class CameraWorker:
                         else:
                             if not inside:
                                 continue
-                            # De-dup against previously-seen unknown identities so the
-                            # same person keeps their Unknown-NNN label across sightings
-                            # instead of minting a new one every detection cycle.
                             unknown_person, is_new = resolve_unknown_person(
                                 face.embedding, frame, db, self.camera_name,
                             )
@@ -377,7 +423,9 @@ class CameraWorker:
                                 confidence=1 - (distance or 0), in_zone=True,
                                 snapshot_path=unknown_person.representative_snapshot_path,
                             )
-                            self._forensic_confirm(frame, label)
+                            # Only run forensic check for newly detected unknown persons to prevent CPU starvation
+                            if is_new:
+                                self._forensic_confirm(frame, label)
                     
                     self.status["latest_detection_at"] = datetime.utcnow().isoformat()
                     
