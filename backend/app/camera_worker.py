@@ -36,6 +36,7 @@ from app.whatsapp import (
     build_restricted_object_message,
     build_weapon_message,
 )
+from app.alert_dispatcher import dispatch_image_alert
 from app.unknown_person_service import resolve_unknown_person
 from app.weapon_engine import weapon_engine, CameraWeaponTracker
 from app.config import settings
@@ -176,14 +177,12 @@ class CameraWorker:
             )
             if person_name:
                 msg = f"{msg}\nIdentity: {person_name}"
-            print(f"[DEBUG-UNKNOWN-WA] sending, snapshot_path={snapshot_path}")
-            wa_result = send_whatsapp_image_alert(snapshot_path, msg)
-            print(f"[DEBUG-UNKNOWN-WA] result={wa_result}")
+            dispatch_image_alert(snapshot_path, msg)
         elif event_type == "restricted_object":
             msg = build_restricted_object_message(
                 self.camera_name, object_name, datetime.utcnow().strftime("%I:%M %p"), confidence or 0
             )
-            send_whatsapp_image_alert(snapshot_path, msg)
+            dispatch_image_alert(snapshot_path, msg)
         elif event_type == "weapon_detected":
             msg = build_weapon_message(
                 self.camera_name,
@@ -193,7 +192,7 @@ class CameraWorker:
                 zone_name=f"Camera {self.camera_id} Zone" if in_zone else None,
                 forensic_confirmed=True,
             )
-            send_whatsapp_image_alert(snapshot_path, msg)
+            dispatch_image_alert(snapshot_path, msg)
 
     def _forensic_confirm(self, frame, trigger_label):
         """Re-run the heavier model on this frame to confirm a trespass event."""

@@ -71,6 +71,8 @@ class WeaponDetectionEngine:
     def _load_model(self):
         try:
             resolved_path = self._resolve_model_path(self.model_path)
+            if not resolved_path or not Path(resolved_path).is_file():
+                raise FileNotFoundError(f"Model file does not exist at '{resolved_path}'")
             logger.info(f"[WeaponEngine] Loading weapon model from: {resolved_path}")
             self.model = YOLO(resolved_path)
             self.is_ready = True
