@@ -100,6 +100,11 @@ export const deleteFacePhoto = (faceId, embeddingId) =>
 export const setCoverPhoto = (faceId, embeddingId) =>
   api.put(`/known-faces/${faceId}/cover/${embeddingId}`).then((r) => r.data);
 
+// --- Telegram Alerts ---
+export const getTelegramStatus = () => api.get("/telegram/status").then((r) => r.data);
+export const sendTelegramTest = (message) => api.post("/send-telegram", { message }).then((r) => r.data);
+export const resendTelegramAlert = (snapshot, caption) => api.post("/resend-telegram-alert", { snapshot, caption }).then((r) => r.data);
+
 // --- Helpers ---
 // snapshot_path from the backend can be either flat ("data/snapshots/foo.jpg")
 // or nested inside a per-person folder ("data/snapshots/unknown/Unknown-017/foo.jpg").

@@ -28,6 +28,15 @@ class Settings:
     WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip().strip('"').strip("'")
     WHATSAPP_ADMIN_NUMBER: str = os.getenv("WHATSAPP_ADMIN_NUMBER", "").strip().strip('"').strip("'")
 
+    # --- Telegram Alerts ---
+    TELEGRAM_ENABLED: bool = os.getenv("TELEGRAM_ENABLED", "true").lower() in ("true", "1", "yes")
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip().strip('"').strip("'")
+    TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "").strip().strip('"').strip("'")
+
+    # --- Alert Fallback / Dispatcher Settings ---
+    ALERT_MODE: str = os.getenv("ALERT_MODE", "fallback").lower()  # "fallback" or "broadcast"
+    PRIMARY_ALERT_PROVIDER: str = os.getenv("PRIMARY_ALERT_PROVIDER", "whatsapp").lower()  # "whatsapp" or "telegram"
+
     UNKNOWN_FACE_THRESHOLD: float = float(os.getenv("UNKNOWN_FACE_THRESHOLD", 0.45))
     UNKNOWN_PERSON_DISTANCE_THRESHOLD: float = UNKNOWN_FACE_THRESHOLD
 
@@ -50,7 +59,7 @@ class Settings:
 
     # --- Weapon Detection ---
     WEAPON_DETECTION_ENABLED: bool = os.getenv("WEAPON_DETECTION_ENABLED", "true").lower() in ("true", "1", "yes")
-    WEAPON_MODEL_PATH: str = os.getenv("WEAPON_MODEL_PATH", "models/weapon/weapon-yolo26x/best.pt")
+    WEAPON_MODEL_PATH: str = os.getenv("WEAPON_MODEL_PATH", "models/weapon/threat-yolov8n.pt")
     WEAPON_CONFIDENCE: float = float(os.getenv("WEAPON_CONFIDENCE", "0.55"))
     WEAPON_CONFIRMATION_COUNT: int = int(os.getenv("WEAPON_CONFIRMATION_COUNT", "3"))
     WEAPON_CONFIRMATION_WINDOW_SECONDS: float = float(os.getenv("WEAPON_CONFIRMATION_WINDOW_SECONDS", "2.0"))
