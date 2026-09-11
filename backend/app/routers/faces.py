@@ -6,7 +6,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import KnownFace, FaceEmbedding
+from app.models import KnownFace, FaceEmbedding, User
 from app.schemas import KnownFaceOut
 from app.face_engine import extract_faces
 from app.config import settings
@@ -28,7 +28,7 @@ async def register_face(
     role: str = Form(None),
     files: list[UploadFile] = File(..., description="2-4 clear front-facing photos recommended"),
     db: Session = Depends(get_db),
-    user: str = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     """
     Multi-photo registration: every uploaded photo that contains a detectable
@@ -94,7 +94,7 @@ def list_known_faces(db: Session = Depends(get_db)):
 
 @router.delete("/known-faces/{face_id}")
 def delete_known_face(
-    face_id: int, db: Session = Depends(get_db), user: str = Depends(get_current_user)
+    face_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     known_face = db.query(KnownFace).filter(KnownFace.id == face_id).first()
     if not known_face:
@@ -128,7 +128,7 @@ async def add_face_photo(
     face_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user: str = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     """Adds one more reference photo to an EXISTING known person. Enforces
     the same 4-photo FIFO cap as everywhere else: if already at the cap,
@@ -184,7 +184,7 @@ def delete_face_photo(
     face_id: int,
     embedding_id: int,
     db: Session = Depends(get_db),
-    user: str = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     embedding = (
         db.query(FaceEmbedding)
@@ -223,7 +223,7 @@ def set_cover_photo(
     face_id: int,
     embedding_id: int,
     db: Session = Depends(get_db),
-    user: str = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     """"Change" action: makes an existing photo the person's profile picture."""
     known_face = db.query(KnownFace).filter(KnownFace.id == face_id).first()

@@ -14,9 +14,13 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, nullable=False, index=True)
+    email = Column(String, unique=True, nullable=False, index=True)
     hashed_password = Column(String, nullable=False)
-    role = Column(String, default="admin")
+    role = Column(String, default="user")  # admin | user
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_login = Column(DateTime, nullable=True)
 
 
 class KnownFace(Base):

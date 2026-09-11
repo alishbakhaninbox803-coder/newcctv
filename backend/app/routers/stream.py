@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app.stream_manager import wait_for_frame
+from app.models import User
 from app.auth import get_current_user_from_query_or_header
 
 router = APIRouter(tags=["Stream"])
@@ -27,7 +28,7 @@ def _mjpeg_generator(camera_id: int):
 
 
 @router.get("/video_feed/{camera_id}")
-def video_feed(camera_id: int, user: str = Depends(get_current_user_from_query_or_header)):
+def video_feed(camera_id: int, user: User = Depends(get_current_user_from_query_or_header)):
     return StreamingResponse(
         _mjpeg_generator(camera_id),
         media_type="multipart/x-mixed-replace; boundary=frame",

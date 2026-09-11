@@ -18,7 +18,7 @@ from app.config import settings
 from app.weapon_engine import weapon_engine  # Eagerly initialize weapon detection on startup
 from app.routers import (
     faces, camera, events, statistics, whatsapp_route,
-    auth as auth_router, zones, stream, health, unknown_persons,
+    auth as auth_router, zones, stream, health, unknown_persons, users as users_router,
 )
 from app.auth import seed_admin_user
 
@@ -55,6 +55,7 @@ app.include_router(events.router)
 app.include_router(statistics.router)
 app.include_router(whatsapp_route.router)
 app.include_router(unknown_persons.router)
+app.include_router(users_router.router)
 
 from app.models import Camera
 from app.database import SessionLocal

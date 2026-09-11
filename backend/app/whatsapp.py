@@ -1,131 +1,122 @@
 """
-Sends WhatsApp alerts using Meta's free-tier WhatsApp Cloud API.
-Setup: https://developers.facebook.com/docs/whatsapp/cloud-api/get-started
+Sends WhatsApp alerts using Meta Cloud API.
 """
+import cv2
 import os
 import requests
 from app.config import settings
 
 
-def _configured() -> bool:
+def _is_meta_configured() -> bool:
     token = (settings.WHATSAPP_TOKEN or "").strip()
     phone_id = (settings.WHATSAPP_PHONE_NUMBER_ID or "").strip()
     admin_num = (settings.WHATSAPP_ADMIN_NUMBER or "").strip()
-    
-    # Ignore unset or default placeholder values
+
+    print(f"[DEBUG] token_len={len(token)} phone_id={phone_id!r} admin_num={admin_num!r}")
+
     if not token or not phone_id or not admin_num:
+        print("[DEBUG] FAILED: ek ya zyada values khaali hain")
         return False
     if "your_" in token or "your_" in phone_id or "91xxxx" in admin_num:
+        print("[DEBUG] FAILED: placeholder text mil gaya")
         return False
     return True
 
 
-def send_whatsapp_text(message: str) -> dict:
-    if not _configured():
-        print("[whatsapp] Skipped: WHATSAPP_TOKEN / PHONE_NUMBER_ID not configured.")
-        return {"skipped": True}
+def _send_meta_text(message: str) -> dict:
+    token = settings.WHATSAPP_TOKEN
+    phone_id = settings.WHATSAPP_PHONE_NUMBER_ID
+    admin_num = settings.WHATSAPP_ADMIN_NUMBER
 
-    url = f"https://graph.facebook.com/v19.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
     headers = {
-        "Authorization": f"Bearer {settings.WHATSAPP_TOKEN}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
     payload = {
         "messaging_product": "whatsapp",
-        "to": settings.WHATSAPP_ADMIN_NUMBER,
+        "to": admin_num,
         "type": "text",
         "text": {"body": message},
     }
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=10)
-        result = resp.json()
-        # NEW: always log the real Meta response + HTTP status so failures
-        # are visible even when Swagger/the caller shows "success".
-        if resp.status_code >= 400 or "error" in result:
-            print(f"[whatsapp] TEXT SEND FAILED (status {resp.status_code}): {result}")
-        else:
-            print(f"[whatsapp] Text sent OK: {result}")
-        return result
+        return resp.json()
     except Exception as exc:
-        print(f"[whatsapp] Failed to send alert: {exc}")
+        print(f"[meta_whatsapp] Exception sending text message: {exc}")
         return {"error": str(exc)}
 
-
-def send_whatsapp_image(image_path: str, caption: str = "") -> dict:
-    """
-    Uploads a local snapshot file to WhatsApp's media endpoint, then sends
-    it as an image message with the given caption. Returns the final
-    /messages response dict, or {"error": ...} / {"skipped": True}.
-    """
-    if not _configured():
-        print("[whatsapp] Skipped: WHATSAPP_TOKEN / PHONE_NUMBER_ID not configured.")
-        return {"skipped": True}
-
-    if not image_path or not os.path.exists(image_path):
-        print(f"[whatsapp] Skipped image send: snapshot not found at {image_path}")
-        return {"error": "snapshot_not_found"}
-
-    headers = {"Authorization": f"Bearer {settings.WHATSAPP_TOKEN}"}
-
+    url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": admin_num,
+        "type": "text",
+        "text": {"body": message},
+    }
     try:
-        # Step 1: upload the media, get back a media_id
-        upload_url = f"https://graph.facebook.com/v19.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/media"
-        with open(image_path, "rb") as f:
-            files = {"file": (os.path.basename(image_path), f, "image/jpeg")}
-            data = {"messaging_product": "whatsapp", "type": "image/jpeg"}
-            upload_resp = requests.post(upload_url, headers=headers, data=data, files=files, timeout=15)
-        upload_json = upload_resp.json()
-
-        # NEW: log the upload step too — if this fails, everything after it
-        # was pointless, so we need to see it separately from the send step.
-        if upload_resp.status_code >= 400 or "id" not in upload_json:
-            print(f"[whatsapp] MEDIA UPLOAD FAILED (status {upload_resp.status_code}): {upload_json}")
-
-        media_id = upload_json.get("id")
-        if not media_id:
-            print(f"[whatsapp] Media upload failed: {upload_json}")
-            return {"error": "media_upload_failed", "detail": upload_json}
-
-        # Step 2: send the image message referencing that media_id
-        send_url = f"https://graph.facebook.com/v19.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": settings.WHATSAPP_ADMIN_NUMBER,
-            "type": "image",
-            "image": {"id": media_id, "caption": caption[:1024]},
-        }
-        send_headers = {**headers, "Content-Type": "application/json"}
-        send_resp = requests.post(send_url, headers=send_headers, json=payload, timeout=10)
-        result = send_resp.json()
-
-        # NEW: log the actual send result/status.
-        if send_resp.status_code >= 400 or "error" in result:
-            print(f"[whatsapp] IMAGE SEND FAILED (status {send_resp.status_code}): {result}")
-        else:
-            print(f"[whatsapp] Image sent OK: {result}")
-
-        return result
+        resp = requests.post(url, headers=headers, json=payload, timeout=10)
+        return resp.json()
     except Exception as exc:
-        print(f"[whatsapp] Failed to send image alert: {exc}")
+        print(f"[meta_whatsapp] Exception sending text message: {exc}")
         return {"error": str(exc)}
+
+
+def send_whatsapp_text(message: str) -> dict:
+    """Send text alert via Meta WhatsApp Cloud API."""
+    if _is_meta_configured():
+        return _send_meta_text(message)
+    else:
+        print("[alerts] Skipped: Meta WhatsApp not configured.")
+        return {"skipped": True}
 
 
 def send_whatsapp_image_alert(snapshot_path: str, caption: str) -> dict:
-    """
-    Preferred entry point for alerts: sends the snapshot as an image with
-    the alert text as its caption. Falls back to a plain text message if
-    there's no snapshot to attach, or if the image send fails/errors out
-    (so an alert still goes out even when the photo can't be delivered).
-    """
-    if not snapshot_path:
-        return send_whatsapp_text(caption)
+    if _is_meta_configured():
+        if not snapshot_path or not os.path.exists(snapshot_path):
+            return _send_meta_text(caption)
+        try:
+            # Convert to JPEG in-memory regardless of source format (webp/jpg/png)
+            # so the content-type we send always matches the actual bytes.
+            img = cv2.imread(snapshot_path)
+            if img is None:
+                return _send_meta_text(caption)
+            success, encoded = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            if not success:
+                return _send_meta_text(caption)
+            image_bytes = encoded.tobytes()
 
-    result = send_whatsapp_image(snapshot_path, caption)
-    if "error" in result:
-        print(f"[whatsapp] Image alert failed ({result['error']}), falling back to text.")
-        return send_whatsapp_text(caption)
-    return result
+            upload_url = f"https://graph.facebook.com/v19.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/media"
+            headers = {"Authorization": f"Bearer {settings.WHATSAPP_TOKEN}"}
+            files = {"file": ("alert.jpg", image_bytes, "image/jpeg")}
+            data = {"messaging_product": "whatsapp", "type": "image/jpeg"}
+            upload_resp = requests.post(upload_url, headers=headers, data=data, files=files, timeout=15)
+            upload_json = upload_resp.json()
+            media_id = upload_json.get("id")
+            if not media_id:
+                return _send_meta_text(caption)
 
+            send_url = f"https://graph.facebook.com/v19.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": settings.WHATSAPP_ADMIN_NUMBER,
+                "type": "image",
+                "image": {"id": media_id, "caption": caption[:1024]},
+            }
+            send_resp = requests.post(send_url, headers={**headers, "Content-Type": "application/json"}, json=payload, timeout=10)
+            return send_resp.json()
+        except Exception as exc:
+            print(f"[meta_whatsapp] Exception sending image alert: {exc}")
+            return _send_meta_text(caption)
+
+    print("[alerts] Skipped: Alert provider not configured.")
+    return {"skipped": True}
+
+
+# --- Alert Message Formatters ---
 
 def build_unknown_person_message(camera_name, timestamp, confidence):
     return (
@@ -158,4 +149,4 @@ def build_weapon_message(camera_name, weapon_class, timestamp, confidence, zone_
         f"{zone_str}\n"
         f"Time: {timestamp}\n"
         f"Verification: {verif_str}"
-    )
+    )

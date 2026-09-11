@@ -39,23 +39,37 @@ def decode_token(token: str) -> str | None:
         return None
 
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> str:
-    """Dependency for protected routes. Accepts token via Authorization header."""
+def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+    """
+    Dependency for protected routes. Validates token, loads User from database.
+    Returns the authenticated User object.
+    """
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
     username = decode_token(token)
     if not username:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
-    return username
+    
+    db: Session = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
+        if not user.is_active:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "User account is inactive")
+        return user
+    finally:
+        db.close()
 
 
 def get_current_user_from_query_or_header(
     token: str | None = Query(None), 
     header_token: str = Depends(oauth2_scheme)
-) -> str:
+) -> User:
     """
     Used for endpoints loaded via <img>/<video> tags (e.g. MJPEG stream), which
     can't set an Authorization header. Accepts ?token=... in the URL as a fallback.
+    Returns the authenticated User object.
     """
     candidate = token or header_token
     if not candidate:
@@ -63,7 +77,27 @@ def get_current_user_from_query_or_header(
     username = decode_token(candidate)
     if not username:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
-    return username
+    
+    db: Session = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
+        if not user.is_active:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "User account is inactive")
+        return user
+    finally:
+        db.close()
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """
+    Dependency for admin-only endpoints.
+    Verifies the user is authenticated and has admin role.
+    """
+    if user.role != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
+    return user
 
 
 def seed_admin_user():
@@ -74,8 +108,10 @@ def seed_admin_user():
         if not existing:
             user = User(
                 username=settings.ADMIN_USERNAME,
+                email=f"{settings.ADMIN_USERNAME}@aicctv.local",
                 hashed_password=hash_password(settings.ADMIN_PASSWORD),
                 role="admin",
+                is_active=True,
             )
             db.add(user)
             db.commit()

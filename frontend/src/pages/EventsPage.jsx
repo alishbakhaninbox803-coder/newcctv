@@ -4,6 +4,7 @@ import EventsTable from "../components/EventsTable";
 
 const FILTERS = [
   { value: "", label: "All" },
+  { value: "weapon_detected", label: "Weapon Detections" },
   { value: "known_person", label: "Known Person" },
   { value: "unknown_person", label: "Unknown Person" },
   { value: "restricted_object", label: "Restricted Object" },

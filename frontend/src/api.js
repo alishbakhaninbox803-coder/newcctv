@@ -17,7 +17,6 @@ api.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem("cctv_token");
-      localStorage.removeItem("cctv_username");
       window.location.href = "/login";
     }
     return Promise.reject(err);
@@ -85,6 +84,9 @@ export const getUnknownPersonSightings = (unknownPersonId) =>
   api.get(`/unknown-persons/${unknownPersonId}/sightings`).then((r) => r.data);
 export const convertUnknownToKnown = (unknownPersonId, name) =>
   api.post(`/unknown-persons/${unknownPersonId}/convert-to-known`, { name }).then((r) => r.data);
+export const deleteUnknownPerson = (unknownPersonId) =>
+  api.delete(`/unknown-persons/${unknownPersonId}`).then((r) => r.data);
+
 
 // --- Known person profile: view / add / delete / set-cover photos ---
 export const getFacePhotos = (faceId) => api.get(`/known-faces/${faceId}/photos`).then((r) => r.data);

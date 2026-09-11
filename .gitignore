@@ -49,7 +49,6 @@ build/
 data/
 backend/data/
 
-notepad .gitignore
 # Snapshots (privacy - contains face images, don't upload)
 backend/data/snapshots/
 data/snapshots/

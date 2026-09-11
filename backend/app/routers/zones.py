@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Zone
+from app.models import User,  Zone
 from app.schemas import ZoneIn, ZoneOut
 from app.auth import get_current_user
 from app.camera_worker import refresh_zone
@@ -26,7 +26,7 @@ def get_zone(camera_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=ZoneOut)
-def save_zone(payload: ZoneIn, db: Session = Depends(get_db), user: str = Depends(get_current_user)):
+def save_zone(payload: ZoneIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if len(payload.points) < 3:
         raise HTTPException(400, "A zone polygon needs at least 3 points")
 
@@ -44,10 +44,11 @@ def save_zone(payload: ZoneIn, db: Session = Depends(get_db), user: str = Depend
 
 
 @router.delete("/{camera_id}")
-def delete_zone(camera_id: int, db: Session = Depends(get_db), user: str = Depends(get_current_user)):
+def delete_zone(camera_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     zone = db.query(Zone).filter(Zone.camera_id == camera_id).first()
     if zone:
         db.delete(zone)
         db.commit()
         refresh_zone(camera_id)
     return {"status": "deleted", "camera_id": camera_id}
+

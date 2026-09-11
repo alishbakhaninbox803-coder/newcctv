@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from app.database import get_db
-from app.models import Event, KnownFace, FaceEmbedding
+from app.models import User,  Event, KnownFace, FaceEmbedding
 from app.schemas import EventOut, ConfirmKnownIn
 from app.face_engine import extract_faces
 from app.auth import get_current_user
@@ -48,7 +48,7 @@ def confirm_known_person(
     event_id: int,
     payload: ConfirmKnownIn,
     db: Session = Depends(get_db),
-    user: str = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     """
     "Make Known" action (spec Sections 5-9).

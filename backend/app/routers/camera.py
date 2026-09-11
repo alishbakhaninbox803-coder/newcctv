@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Camera
+from app.models import Camera, User
 from app.schemas import CameraCreate, CameraOut
 from app.camera_worker import start_camera, stop_camera
 from app.auth import get_current_user
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/camera", tags=["Camera"])
 
 
 @router.post("/add", response_model=CameraOut)
-def add_camera(payload: CameraCreate, db: Session = Depends(get_db), user: str = Depends(get_current_user)):
+def add_camera(payload: CameraCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     camera = Camera(name=payload.name, source=payload.source)
     db.add(camera)
     db.commit()
@@ -25,7 +25,7 @@ def list_cameras(db: Session = Depends(get_db)):
 
 
 @router.post("/start")
-def start(camera_id: int, db: Session = Depends(get_db), user: str = Depends(get_current_user)):
+def start(camera_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
     if not camera:
         raise HTTPException(404, "Camera not found")
@@ -36,7 +36,7 @@ def start(camera_id: int, db: Session = Depends(get_db), user: str = Depends(get
 
 
 @router.post("/stop")
-def stop(camera_id: int, db: Session = Depends(get_db), user: str = Depends(get_current_user)):
+def stop(camera_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
     if not camera:
         raise HTTPException(404, "Camera not found")

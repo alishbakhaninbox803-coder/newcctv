@@ -176,7 +176,9 @@ class CameraWorker:
             )
             if person_name:
                 msg = f"{msg}\nIdentity: {person_name}"
-            send_whatsapp_image_alert(snapshot_path, msg)
+            print(f"[DEBUG-UNKNOWN-WA] sending, snapshot_path={snapshot_path}")
+            wa_result = send_whatsapp_image_alert(snapshot_path, msg)
+            print(f"[DEBUG-UNKNOWN-WA] result={wa_result}")
         elif event_type == "restricted_object":
             msg = build_restricted_object_message(
                 self.camera_name, object_name, datetime.utcnow().strftime("%I:%M %p"), confidence or 0
@@ -423,6 +425,7 @@ class CameraWorker:
                                 confidence=1 - (distance or 0), in_zone=True,
                                 snapshot_path=unknown_person.representative_snapshot_path,
                             )
+                            print("[DEBUG-UNKNOWN] Alert attempted, snapshot=" + str(unknown_person.representative_snapshot_path))
                             # Only run forensic check for newly detected unknown persons to prevent CPU starvation
                             if is_new:
                                 self._forensic_confirm(frame, label)

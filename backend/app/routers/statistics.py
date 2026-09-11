@@ -13,6 +13,7 @@ def get_statistics(db: Session = Depends(get_db)):
     total = db.query(Event).count()
     unknown = db.query(Event).filter(Event.event_type == "unknown_person").count()
     restricted = db.query(Event).filter(Event.event_type == "restricted_object").count()
+    weapon = db.query(Event).filter(Event.event_type == "weapon_detected").count()
     known = db.query(Event).filter(Event.event_type == "known_person").count()
     forensic = db.query(Event).filter(Event.event_type == "forensic_confirmation").count()
     faces = db.query(KnownFace).count()
@@ -22,6 +23,7 @@ def get_statistics(db: Session = Depends(get_db)):
         total_events=total,
         unknown_person_events=unknown,
         restricted_object_events=restricted,
+        weapon_events=weapon,
         known_person_events=known,
         forensic_confirmations=forensic,
         total_known_faces=faces,

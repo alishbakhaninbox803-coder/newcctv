@@ -2,16 +2,16 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env from backend/ or project root directory
+# Load .env from backend/ or project root directory with forced override
 _backend_env = Path(__file__).resolve().parent.parent / ".env"
 _root_env = Path(__file__).resolve().parent.parent.parent / ".env"
 
 if _root_env.is_file():
-    load_dotenv(dotenv_path=_root_env)
+    load_dotenv(dotenv_path=_root_env, override=True)
 elif _backend_env.is_file():
-    load_dotenv(dotenv_path=_backend_env)
+    load_dotenv(dotenv_path=_backend_env, override=True)
 else:
-    load_dotenv()
+    load_dotenv(override=True)
 
 
 class Settings:
@@ -23,30 +23,28 @@ class Settings:
     REDIS_PORT: int = int(os.getenv("REDIS_PORT", 6379))
     REDIS_STREAM_NAME: str = os.getenv("REDIS_STREAM_NAME", "cctv_events")
 
-    WHATSAPP_TOKEN: str = os.getenv("WHATSAPP_TOKEN", "")
-    WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
-    WHATSAPP_ADMIN_NUMBER: str = os.getenv("WHATSAPP_ADMIN_NUMBER", "")
+    # --- Meta WhatsApp Alerts ---
+    WHATSAPP_TOKEN: str = os.getenv("WHATSAPP_TOKEN", "").strip().strip('"').strip("'")
+    WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip().strip('"').strip("'")
+    WHATSAPP_ADMIN_NUMBER: str = os.getenv("WHATSAPP_ADMIN_NUMBER", "").strip().strip('"').strip("'")
 
     UNKNOWN_FACE_THRESHOLD: float = float(os.getenv("UNKNOWN_FACE_THRESHOLD", 0.45))
-    # Alias for compatibility with code that references the older/alternate name.
     UNKNOWN_PERSON_DISTANCE_THRESHOLD: float = UNKNOWN_FACE_THRESHOLD
 
     # --- Strict frontal-face filtering ---
-    # Any face (known-face registration OR live camera detection) that fails these
-    # checks is dropped before it ever reaches matching/alerting logic.
-    FACE_MAX_YAW_DEG: float = float(os.getenv("FACE_MAX_YAW_DEG", 20))     # left/right turn
-    FACE_MAX_PITCH_DEG: float = float(os.getenv("FACE_MAX_PITCH_DEG", 20))  # up/down tilt
-    FACE_MAX_ROLL_DEG: float = float(os.getenv("FACE_MAX_ROLL_DEG", 25))   # head tilt sideways
-    FACE_MIN_DET_SCORE: float = float(os.getenv("FACE_MIN_DET_SCORE", 0.65))  # detector confidence
-    FACE_MIN_SHARPNESS: float = float(os.getenv("FACE_MIN_SHARPNESS", 60))   # blur/quality (Laplacian variance)
-    FACE_MIN_SIZE_PX: int = int(os.getenv("FACE_MIN_SIZE_PX", 60))  # min face box width/height in pixels
+    FACE_MAX_YAW_DEG: float = float(os.getenv("FACE_MAX_YAW_DEG", 20))
+    FACE_MAX_PITCH_DEG: float = float(os.getenv("FACE_MAX_PITCH_DEG", 20))
+    FACE_MAX_ROLL_DEG: float = float(os.getenv("FACE_MAX_ROLL_DEG", 25))
+    FACE_MIN_DET_SCORE: float = float(os.getenv("FACE_MIN_DET_SCORE", 0.65))
+    FACE_MIN_SHARPNESS: float = float(os.getenv("FACE_MIN_SHARPNESS", 60))
+    FACE_MIN_SIZE_PX: int = int(os.getenv("FACE_MIN_SIZE_PX", 60))
     RESTRICTED_OBJECTS: list = [
         o.strip().lower()
         for o in os.getenv("RESTRICTED_OBJECTS", "knife,gun,backpack").split(",")
     ]
     CONFIDENCE_THRESHOLD: float = float(os.getenv("CONFIDENCE_THRESHOLD", 0.4))
 
-    # Two-tier detection: light model runs continuously, heavier model confirms trespass events
+    # Two-tier detection
     LIGHT_MODEL: str = os.getenv("LIGHT_MODEL", "yolov8n.pt")
     FORENSIC_MODEL: str = os.getenv("FORENSIC_MODEL", "yolov8m.pt")
 

@@ -34,6 +34,7 @@ def send_whatsapp(payload: WhatsAppMessage):
     return {"result": result}
 
 
+
 class ResendAlert(BaseModel):
     # Either the filename only (e.g. "aziz_1788009108798.webp") if it's
     # directly under SNAPSHOT_ROOT, or "unknown/Unknown-002/aziz_....webp"

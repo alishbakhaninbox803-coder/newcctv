@@ -3,10 +3,12 @@ FILE PATH: frontend/src/pages/UnknownPersonsPage.jsx
 ACTION: CREATE NEW FILE
 */
 import { useEffect, useState, useCallback } from "react";
+import { useAuth } from "../hooks/useAuth";
 import {
   getUnknownPersons,
   getUnknownSightings,
   convertUnknownToKnown,
+  deleteUnknownPerson,
   snapshotUrl,
 } from "../api";
 
@@ -15,6 +17,7 @@ function unknownLabel(id) {
 }
 
 function ConvertForm({ personId, onDone }) {
+  const { isAdmin } = useAuth();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -36,6 +39,20 @@ function ConvertForm({ personId, onDone }) {
     }
   };
 
+  const handleDelete = async () => {
+    if (!isAdmin) return;
+    if (!window.confirm(`Delete Unknown-${String(personId).padStart(3, "0")} and all sightings?`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      await deleteUnknownPerson(personId);
+      onDone?.();
+    } catch (err) {
+      setError(err.response?.data?.detail || "Failed to delete");
+      setBusy(false);
+    }
+  };
+
   return (
     <form onSubmit={submit} className="flex items-center gap-2 mt-2">
       <input
@@ -51,6 +68,17 @@ function ConvertForm({ personId, onDone }) {
       >
         Mark as Known
       </button>
+      {isAdmin && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={handleDelete}
+          className="bg-red-700 hover:bg-red-600 disabled:opacity-50 rounded px-3 py-1 text-xs whitespace-nowrap text-white"
+          title="Delete unknown person (Admin only)"
+        >
+          Delete
+        </button>
+      )}
       {error && <span className="text-xs text-red-400">{error}</span>}
       {success && <span className="text-xs text-green-400">{success}</span>}
     </form>

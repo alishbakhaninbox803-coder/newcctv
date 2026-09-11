@@ -3,6 +3,21 @@ from datetime import datetime
 from typing import Optional, Union
 
 
+class UserOut(BaseModel):
+    """User data returned to frontend (no password)"""
+    id: int
+    username: str
+    email: Optional[str] = None
+    role: str  # admin | user
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    last_login: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class EventOut(BaseModel):
     id: int
     event_type: str
@@ -82,6 +97,7 @@ class StatisticsOut(BaseModel):
     total_events: int
     unknown_person_events: int
     restricted_object_events: int
+    weapon_events: int = 0
     known_person_events: int
     forensic_confirmations: int
     total_known_faces: int
@@ -91,7 +107,9 @@ class StatisticsOut(BaseModel):
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    username: str
+    user: UserOut
+    username: str  # kept for backward compatibility
+    role: str
 
 
 class ZoneIn(BaseModel):

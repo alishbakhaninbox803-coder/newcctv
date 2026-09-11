@@ -3,6 +3,7 @@ export default function Stats({ stats }) {
 
   const cards = [
     { label: "Total Events", value: stats.total_events },
+    { label: "Weapons Detected", value: stats.weapon_events || 0, warn: true },
     { label: "Unknown Persons", value: stats.unknown_person_events, warn: true },
     { label: "Restricted Objects", value: stats.restricted_object_events, warn: true },
     { label: "Forensic Confirmations", value: stats.forensic_confirmations, warn: true },
@@ -12,7 +13,7 @@ export default function Stats({ stats }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
       {cards.map((c) => (
         <div
           key={c.label}

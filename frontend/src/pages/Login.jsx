@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 
@@ -6,15 +6,25 @@ export default function Login() {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const { login } = useAuth();
+  const { login, isAuthenticated, isAdmin } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate(isAdmin ? "/dashboard" : "/user/home", { replace: true });
+    }
+  }, [isAuthenticated, isAdmin, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     try {
-      await login(username, password);
-      navigate("/dashboard");
+      const loggedUser = await login(username, password);
+      if (loggedUser?.role === "admin") {
+        navigate("/dashboard");
+      } else {
+        navigate("/user/home");
+      }
     } catch {
       setError("Incorrect username or password");
     }
